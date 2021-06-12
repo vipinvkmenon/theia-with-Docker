@@ -8,11 +8,13 @@ FROM docker:20.10-dind
 
 COPY --from=node_base . .
 
-RUN echo http://dl-2.alpinelinux.org/alpine/edge/community/ >> /etc/apk/repositories
-RUN apk --no-cache add shadow
-# busybox "ip" is insufficient:
+# Install packages
+# Additional notes: busybox "ip" is insufficient:
 #   [rootlesskit:child ] error: executing [[ip tuntap add name tap0 mode tap] [ip link set tap0 address 02:50:00:00:00:01]]: exit status 1
-RUN apk add --no-cache iproute2
+
+RUN echo http://dl-2.alpinelinux.org/alpine/edge/community/ >> /etc/apk/repositories
+RUN apk --no-cache add shadow iproute2 make pkgconfig gcc g++ python libx11-dev libxkbfile-dev git openssh bash curl
+
 
 # "/run/user/UID" will be used by default as the value of XDG_RUNTIME_DIR
 RUN mkdir /run/user && chmod 1777 /run/user
@@ -23,6 +25,7 @@ RUN set -eux; \
 	echo 'rootless:100000:65536' >> /etc/subuid; \
 	echo 'rootless:100000:65536' >> /etc/subgid
 
+# Docker DIND rootless extras
 RUN set -eux; \
 	\
 	apkArch="$(apk --print-arch)"; \
@@ -53,17 +56,23 @@ RUN set -eux; \
 	mkdir -p /home/theia/.local/share/docker; \
 	chown -R rootless /home/theia/.local/share/docker
 
-# Setup for theia
+# Groups: theia & Docker
 RUN addgroup theia && \
-    usermod -a -G theia rootless
+    usermod -a -G theia rootless && \
+    addgroup docker && \
+    usermod -a -G docker rootless
+
+
 
 VOLUME /home/theia/.local/share/docker
 
 
-RUN apk add --no-cache make pkgconfig gcc g++ python libx11-dev libxkbfile-dev
+# Installing theia. Node: This part of building the image requires quite a bit of memory. 
+# Reserve preferabbly 8gb on Docker to build this image. 
+# Else yarn would just give up with random errors midway.
+
 ARG version=latest
 ADD $version.package.json ./package.json
-
 
 ARG GITHUB_TOKEN
 
@@ -77,42 +86,25 @@ RUN yarn --pure-lockfile && \
     echo *.spec.* >> .yarnclean && \
     yarn autoclean --force && \
     yarn cache clean
+ADD $version.package.json /home/theia/package.json
 
-
-
+# Environment settings
 RUN chmod g+rw /home && \
     mkdir -p /home/project && \
     chown -R rootless /home/theia && \
     chown -R rootless /home/project &&\
 	chown -R rootless /src-gen && \
 	chown -R rootless /plugins;
-
-RUN apk add --no-cache git openssh bash
 ENV HOME /home/theia
-
 WORKDIR /home/theia
 
-ADD $version.package.json /home/theia/package.json
-RUN chown -R rootless /home/theia
-
+# Docker Toolkit
 COPY init-docker-env /usr/local/bin
 RUN chmod 777 /usr/local/bin/init-docker-env
-
-# More user friendly name
+   # More user friendly name
 RUN mv /usr/local/bin/dockerd-entrypoint.sh /usr/local/bin/start-dockerd
 RUN chmod 777 /usr/local/bin/start-dockerd
-
-EXPOSE 3000
-
-ENV SHELL=/bin/bash \
-    THEIA_DEFAULT_PLUGINS=local-dir:/plugins
-ENV USE_LOCAL_GIT true
-# Setup for docker group
-RUN groupadd docker
-RUN usermod -a -G docker rootless
-
-RUN apk --no-cache add curl
-
+# Kubectl and friends
 RUN curl -Lo /usr/local/bin/kyma https://storage.googleapis.com/kyma-cli-stable/kyma-linux
 RUN chmod 777 /usr/local/bin/kyma
 
@@ -128,11 +120,16 @@ RUN tar -zxvf helm-v3.6.0-linux-amd64.tar.gz && rm helm-v3.6.0-linux-amd64.tar.g
 RUN mv linux-amd64/helm /usr/local/bin/helm
 RUN chmod 777 /usr/local/bin/helm
 
+# Expse port
+EXPOSE 3000
+
+# Theia Env Variables
+ENV SHELL=/bin/bash \
+    THEIA_DEFAULT_PLUGINS=local-dir:/plugins
+ENV USE_LOCAL_GIT true
+
+# And stage
 USER rootless
-
-#istioctl
-RUN export PATH=$PATH:$HOME/.istioctl/bin
-
 ENTRYPOINT ["node", "/src-gen/backend/main.js", "/home/project", "--hostname=0.0.0.0" ]
 
 
