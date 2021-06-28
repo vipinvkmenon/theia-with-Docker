@@ -13,7 +13,7 @@ COPY --from=node_base . .
 #   [rootlesskit:child ] error: executing [[ip tuntap add name tap0 mode tap] [ip link set tap0 address 02:50:00:00:00:01]]: exit status 1
 
 RUN echo http://dl-2.alpinelinux.org/alpine/edge/community/ >> /etc/apk/repositories
-RUN apk --no-cache add shadow iproute2 make pkgconfig gcc g++ python libx11-dev libxkbfile-dev git openssh bash curl
+RUN apk --no-cache add shadow iproute2 make pkgconfig gcc g++ python libx11-dev libxkbfile-dev git openssh bash curl chromium 
 
 
 # "/run/user/UID" will be used by default as the value of XDG_RUNTIME_DIR
@@ -129,7 +129,7 @@ ENV SHELL=/bin/bash \
 ENV USE_LOCAL_GIT true
 
 # And stage
-USER rootless
+#USER rootless
 ENTRYPOINT ["node", "/src-gen/backend/main.js", "/home/project", "--hostname=0.0.0.0" ]
 
 
